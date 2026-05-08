@@ -31,7 +31,10 @@ router = APIRouter()
 import re
 
 _T2I_PATTERN = re.compile(
-    r"(生成图片|画(一|个|张)?图|draw|generate\s+image|create\s+image|make\s+image|图片生成|文生图|生成一张|画一张)",
+    r"(生成图片|图片生成|文生图|"
+    r"帮我画|给我画|"
+    r"画(一只|一个|一张|个|张)?[^，。！？\n]{0,20}|"
+    r"draw|generate\s+image|create\s+image|make\s+image)",
     re.IGNORECASE,
 )
 
@@ -167,7 +170,7 @@ async def chat_completions(request: Request):
                 yield f"data: {_make_chunk(completion_id, created, model_name, {'role': 'assistant'})}\n\n"
                 try:
                     result, acc, session_id = await client.chat_with_retry(
-                        text=user_text, bot_id=bot_id,
+                        text=user_text, bot_id=bot_id, media_intent=media_intent,
                     )
                     # 注意：acc 已在 DoubaoClient 内部 release，此处不再重复释放
                     if result.error:
@@ -194,7 +197,7 @@ async def chat_completions(request: Request):
         else:
             try:
                 result, acc, session_id = await client.chat_with_retry(
-                    text=user_text, bot_id=bot_id,
+                    text=user_text, bot_id=bot_id, media_intent=media_intent,
                 )
                 # 注意：acc 已在 DoubaoClient 内部 release，此处不再重复释放
                 if result.error:
@@ -231,6 +234,7 @@ async def chat_completions(request: Request):
             try:
                 async for event in client.stream_with_retry(
                     text=user_text, bot_id=bot_id,
+                    media_intent=media_intent,
                 ):
                     if event["type"] == "meta":
                         acc = event.get("acc")
@@ -295,6 +299,7 @@ async def chat_completions(request: Request):
         try:
             result, acc, session_id = await client.chat_with_retry(
                 text=user_text, bot_id=bot_id,
+                media_intent=media_intent,
             )
             # 注意：acc 已在 DoubaoClient 内部 release，此处不再重复释放
             if result.error:

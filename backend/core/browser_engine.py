@@ -360,6 +360,73 @@ class BrowserEngine:
             else:
                 await self._pages.put((page, context))
 
+    async def fetch_image(self, sessionid: str, prompt: str):
+        """通过豆包官方图像生成 UI 提交请求，返回原始 SSE 响应。"""
+        await asyncio.wait_for(self._ready.wait(), timeout=300)
+        if not self._started:
+            yield {"status": 0, "body": "Browser engine not started. Run: python -m playwright install chromium"}
+            return
+
+        try:
+            page, context = await asyncio.wait_for(self._pages.get(), timeout=60)
+        except asyncio.TimeoutError:
+            yield {"status": 429, "body": "Too Many Requests (Queue full)"}
+            return
+
+        needs_refresh = False
+
+        try:
+            ctx_id = id(context)
+            prev_sessionid = self._context_sessionid.get(ctx_id, "")
+            need_navigate = (prev_sessionid != sessionid)
+
+            if need_navigate:
+                await self.inject_session(context, sessionid)
+                self._context_sessionid[ctx_id] = sessionid
+                log.info(f"[Browser] {'首次' if not prev_sessionid else 'Cookie 变化，'}导航图像页面 (sessionid={sessionid[:8]}...)")
+                try:
+                    await page.goto(f"{self.base_url}/chat/", wait_until="domcontentloaded", timeout=30000)
+                    await asyncio.sleep(2)
+                except Exception:
+                    log.warning("[Browser] 图像页面导航超时")
+            else:
+                log.info(f"[Browser] 复用已有图像页面 (sessionid={sessionid[:8]}...)")
+
+            await asyncio.sleep(_request_jitter_seconds())
+
+            image_entry = page.get_by_text("图像生成", exact=True)
+            await image_entry.click(timeout=10000)
+            await asyncio.sleep(1.5)
+
+            editor = page.locator('div[role="textbox"][contenteditable="true"]')
+            await editor.click(timeout=10000)
+            await editor.fill(prompt, timeout=10000)
+
+            log.info(f"[Browser] 图像生成提交: prompt={prompt[:80]!r}")
+            async with page.expect_response(lambda r: "/chat/completion" in r.url, timeout=30000) as resp_info:
+                await page.keyboard.press("Enter")
+
+            resp = await resp_info.value
+            body = await resp.text()
+            log.info(
+                f"[Browser] image fetch result: status={resp.status}, "
+                f"body_len={len(body)}, url={resp.url[:120]}"
+            )
+            yield {"status": resp.status, "body": body}
+
+        except asyncio.TimeoutError:
+            needs_refresh = True
+            yield {"status": 0, "body": "Image generation timeout"}
+        except Exception as e:
+            needs_refresh = True
+            log.error(f"[Browser] fetch_image 异常: {e}")
+            yield {"status": 0, "body": str(e)}
+        finally:
+            if needs_refresh:
+                asyncio.create_task(self._refresh_page_and_return(page, context))
+            else:
+                await self._pages.put((page, context))
+
     # ── 页面刷新与回收 ───────────────────────────────────
 
     async def _refresh_page(self, page, context):

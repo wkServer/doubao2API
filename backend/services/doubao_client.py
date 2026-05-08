@@ -38,6 +38,7 @@ class DoubaoClient:
         bot_id: str = "",
         conversation_id: str = "",
         exclude_accounts: set = None,
+        media_intent: str = "t2t",
     ) -> tuple[StreamResult, Optional[Account], str]:
         """非流式聊天，返回 (StreamResult, Account, session_id)。
 
@@ -55,25 +56,31 @@ class DoubaoClient:
         )
 
         try:
-            # 构建请求 payload
-            payload = self.session_store.build_full_payload(session.session_id, text)
-            body_str = json.dumps(payload, ensure_ascii=False)
-
             log.info(
                 f"[Client] chat request: session={session.session_id[:8]}... "
                 f"bot_id={bot_id} is_new={not conversation_id} "
-                f"account={acc.name}"
+                f"intent={media_intent} account={acc.name}"
             )
 
-            # 通过浏览器引擎执行请求
             result = None
-            async for res in self.engine.fetch_chat(
-                sessionid=acc.sessionid,
-                request_body=body_str,
-                conversation_id=conversation_id,
-            ):
-                result = res
-                break  # fetch_chat yield 一次
+            if media_intent == "t2i":
+                async for res in self.engine.fetch_image(
+                    sessionid=acc.sessionid,
+                    prompt=text,
+                ):
+                    result = res
+                    break
+            else:
+                payload = self.session_store.build_full_payload(session.session_id, text)
+                body_str = json.dumps(payload, ensure_ascii=False)
+
+                async for res in self.engine.fetch_chat(
+                    sessionid=acc.sessionid,
+                    request_body=body_str,
+                    conversation_id=conversation_id,
+                ):
+                    result = res
+                    break  # fetch_chat yield 一次
 
             if not result:
                 self.account_pool.release(acc)
@@ -152,6 +159,7 @@ class DoubaoClient:
         bot_id: str = "",
         conversation_id: str = "",
         exclude_accounts: set = None,
+        media_intent: str = "t2t",
     ) -> AsyncGenerator[dict, None]:
         """流式聊天，逐 chunk 返回事件字典。
 
@@ -183,18 +191,26 @@ class DoubaoClient:
             log.info(
                 f"[Client] stream request: session={session.session_id[:8]}... "
                 f"bot_id={bot_id} is_new={not conversation_id} "
-                f"account={acc.name}"
+                f"intent={media_intent} account={acc.name}"
             )
 
             # 通过浏览器引擎执行请求
             result = None
-            async for res in self.engine.fetch_chat(
-                sessionid=acc.sessionid,
-                request_body=body_str,
-                conversation_id=conversation_id,
-            ):
-                result = res
-                break
+            if media_intent == "t2i":
+                async for res in self.engine.fetch_image(
+                    sessionid=acc.sessionid,
+                    prompt=text,
+                ):
+                    result = res
+                    break
+            else:
+                async for res in self.engine.fetch_chat(
+                    sessionid=acc.sessionid,
+                    request_body=body_str,
+                    conversation_id=conversation_id,
+                ):
+                    result = res
+                    break
 
             if not result:
                 self.account_pool.release(acc)
@@ -255,14 +271,10 @@ class DoubaoClient:
                     self.session_store.update_from_sse(session_id, message_index=idx)
 
                 content = evt.data.get("content", {})
-                blocks = content.get("content_block", [])
-                for block in blocks:
-                    if block.get("block_type") == 10000:
-                        text = block.get("content", {}).get("text_block", {}).get("text", "")
-                        if text:
-                            full_text += text
-                            yield {"type": "delta", "content": text}
-                        break
+                text = DoubaoSSEParser.extract_text_from_content(content)
+                if text:
+                    full_text += text
+                    yield {"type": "delta", "content": text}
 
             elif evt.event_type == "CHUNK_DELTA":
                 # 增量文本（最简洁路径）
@@ -363,6 +375,7 @@ class DoubaoClient:
         bot_id: str = "",
         conversation_id: str = "",
         max_retries: int = None,
+        media_intent: str = "t2t",
     ) -> tuple[StreamResult, Optional[Account], str]:
         """带重试的聊天（非流式）。"""
         max_retries = max_retries or settings.MAX_RETRIES
@@ -374,6 +387,7 @@ class DoubaoClient:
                 bot_id=bot_id,
                 conversation_id=conversation_id,
                 exclude_accounts=exclude,
+                media_intent=media_intent,
             )
 
             if not result.error:
@@ -396,6 +410,7 @@ class DoubaoClient:
         bot_id: str = "",
         conversation_id: str = "",
         max_retries: int = None,
+        media_intent: str = "t2t",
     ) -> AsyncGenerator[dict, None]:
         """带重试的流式聊天。"""
         max_retries = max_retries or settings.MAX_RETRIES
@@ -410,6 +425,7 @@ class DoubaoClient:
                 bot_id=bot_id,
                 conversation_id=conversation_id,
                 exclude_accounts=exclude,
+                media_intent=media_intent,
             ):
                 if event["type"] == "meta":
                     session_id = event.get("session_id", "")

@@ -195,6 +195,11 @@ class DoubaoSSEParser:
                     self._full_text += text
                 break
 
+        if not self._full_text:
+            fallback_text = self.extract_text_from_content(content)
+            if fallback_text:
+                self._full_text += fallback_text
+
         # 检测文生图 Agent
         ext = content.get("ext", {})
         bot_state = ext.get("bot_state", "")
@@ -209,6 +214,33 @@ class DoubaoSSEParser:
 
     _first_stream_chunk_logged = 0  # 类变量，控制诊断打印前N个
     _stream_msg_logged = False
+
+    @staticmethod
+    def extract_text_from_content(content: dict) -> str:
+        """兼容新版豆包消息结构，优先从内联 content JSON 取文本。"""
+        for block in content.get("content_block", []):
+            if block.get("block_type") == 10000:
+                text = block.get("content", {}).get("text_block", {}).get("text", "")
+                if text:
+                    return text
+
+        inline_content = content.get("content")
+        if inline_content:
+            try:
+                inline_obj = json.loads(inline_content) if isinstance(inline_content, str) else inline_content
+            except (TypeError, json.JSONDecodeError):
+                inline_obj = {}
+            if isinstance(inline_obj, dict):
+                text = inline_obj.get("text", "")
+                if text:
+                    return text
+
+        for key in ("model_content", "tts_content"):
+            text = content.get(key, "")
+            if isinstance(text, str) and text:
+                return text
+
+        return ""
 
     def _process_stream_chunk(self, data: dict):
         """处理 STREAM_CHUNK 事件 - 补丁更新"""

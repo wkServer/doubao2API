@@ -301,6 +301,16 @@ curl http://127.0.0.1:7861/v1/chat/completions \
 }
 ```
 
+以下自然语言提示词也会自动命中文生图路由，无需显式写 `生成图片`：
+
+```text
+画一只可爱的猫咪
+帮我画一张海边日落插画
+给我画一个赛博朋克风格的机器人
+```
+
+> 提示：`images` 字段适合程序直接取 URL，`choices[0].message.content` 适合在支持 Markdown 的客户端直接展示图片。
+
 ### 6.4 模型名映射
 
 doubao2API 支持多种模型名，均映射到豆包的 bot_id：
@@ -409,6 +419,11 @@ BROWSER_POOL_SIZE=3
 MAX_INFLIGHT=1
 DEFAULT_BOT_ID=7338286299411103781
 ```
+
+### 7.5 安全提示
+
+- `data/accounts.json` 中保存的是真实豆包 `sessionid`，请不要把生产 Cookie 提交到仓库。
+- 推荐通过管理接口动态添加账号，而不是把真实 `sessionid` 直接写进示例文件。
 
 ---
 

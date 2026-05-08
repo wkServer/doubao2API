@@ -96,6 +96,10 @@ __pypackages__/
 
 # virtualenv
 .virtualenvs/
+.venv/
+
+# local runtime artifacts
+output/
 
 # dotenv
 .env
